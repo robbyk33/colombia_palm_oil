@@ -11,7 +11,9 @@ library(dplyr)
 library(reshape2)
 
 # import IPUMS census data
-ipums <- read.csv("data/ipums_full_1985-2005.csv")
+# ipums <- read.csv("data/ipums_full_1985-2005.csv")
+
+ipums <- read.csv("data/ipumsi_rev3.csv")
 
 # filter and mutate data as needed
 ipums_f <-  mutate(ipums,
@@ -27,7 +29,7 @@ ipums_f <-  mutate(ipums,
   # filter(CLASSWK != 0 ) %>%
   # filter(CLASSWK != 9) %>%
   # filter(YEAR != 1985) %>%
-  filter(AGE>=10 & AGE < 65) %>%  # retirement age in Colombia is 62 for Male, 57 Female
+  filter(AGE < 65) %>%  # retirement age in Colombia is 62 for Male, 57 Female
   filter(SEX == 1 | SEX == 2) %>%
   # filter(URBAN ==1) %>%
   filter(GEO2_CO != "170011099") %>%  # remove san andres island district
@@ -36,10 +38,12 @@ ipums_f <-  mutate(ipums,
     SEX = case_when(SEX==1~1,TRUE~0),
     MINOR = case_when(AGE<15 ~ 1,TRUE~0),
     LF = case_when(LABFORCE==2~1,TRUE~0),
-    
+    WAGEWORKER = case_when(CLASSWK==2~1,TRUE~0),
+    EMPLOYMENT = case_when(EMPSTAT == 1 ~1, TRUE~0),
+    RURAL = case_when(URBAN==1~1,TRUE~0),
     CLASSWK = as.factor(CLASSWK),
     LOCAL = case_when(BPLCO3 == 1~1,TRUE~0),  #dummy for local
-    SCHOOL = case_when((YRSCHOOL>4 &YRSCHOOL<92)~1,TRUE~0),# dummy for some school
+    SCHOOL = case_when(SCHOOL==1~1,TRUE~0),# dummy for school attendance
     # COLLEGE = as.factor(case_when(EDUCCO>400 & EDUCCO<600~1,TRUE~0)),
     # FAM_UNPAID = as.factor(case_when(CLASSWKD==310 ~ 1,TRUE~0)),
     # DOMESTIC = as.factor(case_when(CLASSWKD==230 ~ 1,TRUE~0)),
@@ -51,7 +55,7 @@ ipums_f <-  mutate(ipums,
 rm(ipums)
 
 # assign percent agriculture industry based on entire 1993 census
-ag_means <- subset(ipums_f,YEAR==1993) %>%
+ag_means <- subset(ipums_f,YEAR==1993) %>% subset(AGE>=10) %>%
   mutate(AG_IND = case_when(INDGEN==10~1,TRUE~0)) %>% 
   group_by(GEO2_CO) %>%  summarize(m=mean(AG_IND)) %>%  ungroup()
 
@@ -83,14 +87,103 @@ plt_hist
 
 
 print(length(ipums_f$GEO2_CO))
+
+
 # generate column for 1993 ag means (assigned to all observations)
+# detach(package:plyr)    
+# library(dplyr)
+
+ip_means <- filter(ipums_f,AGE>=18) %>%
+  group_by(GEO2_CO,YEAR) %>%
+  summarize(
+    WAGEWORKER = mean(WAGEWORKER),
+    EMPLOYMENT = mean(EMPLOYMENT),
+    RURAL = mean(RURAL),
+    SCHOOL = mean(SCHOOL),
+    SEX = mean(SEX),
+    AGE = mean(AGE),
+    ) %>% merge(ag_means,by="GEO2_CO",all.x=TRUE) %>%
+  mutate(
+    POST = case_when(YEAR==2005~1,TRUE~0),
+    TREAT = case_when(m>cutoff~1,TRUE~0)
+  ) %>% ungroup()
+
+# save grouped means
+saveRDS(ip_means,file="processed_data/ipums_grouped.RDS")
+
+##########################
+## school grouped means ##
+
+school_means <- filter(ipums_f,AGE<18) %>%
+  group_by(GEO2_CO,YEAR) %>%
+  summarize(
+    # GEO1_CO = GEO1_CO,
+    WAGEWORKER = mean(WAGEWORKER),
+    EMPLOYMENT = mean(EMPLOYMENT),
+    RURAL = mean(RURAL),
+    SCHOOL = mean(SCHOOL),
+    SEX = mean(SEX),
+    AGE = mean(AGE),
+  ) %>% merge(ag_means,by="GEO2_CO",all.x=TRUE) %>%
+  mutate(
+    POST = case_when(YEAR==2005~1,TRUE~0),
+    TREAT = case_when(m>cutoff~1,TRUE~0)
+  ) %>% ungroup()
+
+# save grouped means
+saveRDS(school_means,file="processed_data/ipums_school.RDS")
+
+########################################
+## grouped by birthplace
+##########################
+
+ip_bpl <- filter(ipums_f,AGE>=18) %>% filter(BPLCO3!=9) %>%
+  droplevels() %>%
+  group_by(GEO2_CO,YEAR,BPLCO3) %>%
+  summarize(
+    WAGEWORKER = mean(WAGEWORKER),
+    EMPLOYMENT = mean(EMPLOYMENT),
+    RURAL = mean(RURAL),
+    SCHOOL = mean(SCHOOL),
+    SEX = mean(SEX),
+    AGE = mean(AGE),
+  ) %>% merge(ag_means,by="GEO2_CO",all.x=TRUE) %>%
+  mutate(
+    POST = case_when(YEAR==2005~1,TRUE~0),
+    TREAT = case_when(m>cutoff~1,TRUE~0)
+  ) %>% ungroup()
+
+# save grouped means
+saveRDS(ip_bpl,file="processed_data/ipums_bpl.RDS")
+
+########################################
+## grouped by birthplace - children subset
+##########################
+
+bpl_child <- filter(ipums_f,AGE<18) %>% filter(BPLCO3!=9) %>%
+  droplevels() %>%
+  group_by(GEO2_CO,YEAR,BPLCO3) %>%
+  summarize(
+    WAGEWORKER = mean(WAGEWORKER),
+    EMPLOYMENT = mean(EMPLOYMENT),
+    RURAL = mean(RURAL),
+    SCHOOL = mean(SCHOOL),
+    SEX = mean(SEX),
+    AGE = mean(AGE),
+  ) %>% merge(ag_means,by="GEO2_CO",all.x=TRUE) %>%
+  mutate(
+    POST = case_when(YEAR==2005~1,TRUE~0),
+    TREAT = case_when(m>cutoff~1,TRUE~0)
+  ) %>% ungroup()
+
+# save grouped means
+saveRDS(bpl_child,file="processed_data/ipums_bpl-child.RDS")
+#################################
+## ungrouped data 
+
 ipums_f <- merge(ipums_f,ag_means,by="GEO2_CO",all.x = TRUE)
+# generate treatment variable = 1 if municipality ag_mean > Median in 1993
 
-
-
-
-# generate treatment variable = 1 if municipality ag_mean > 40% in 1993
-# AND LOCAL == 1
 ipums_f <- ipums_f %>%
   mutate(
     TREAT = case_when(m>cutoff~1,TRUE~0)
@@ -123,7 +216,7 @@ treatment_means <- ipums_f %>%
     LaborForce = mean(case_when(LABFORCE==2~1,TRUE~0)),
     Employed = mean(case_when(EMPSTAT == 1 ~1, TRUE~0)),
     Wage = mean(case_when(CLASSWK==2 ~ 1,TRUE~0)),
-    Schooling = mean(case_when((YRSCHOOL>4 &YRSCHOOL<92)~1,TRUE~0))
+    Schooling = mean(SCHOOL)
   ) %>%  ungroup()
 
 
@@ -131,8 +224,11 @@ treatment_means <- ipums_f %>%
 tbl1 <- treatment_means %>%
   mutate(TREAT = factor(TREAT,labels=c("Control Group","Treated Group"))) %>%
   tbl_summary(
-    include = c(Age,Schooling,Rural,Local,LaborForce,Employed,Wage),
-    label = list(Schooling~">4 Years School",LaborForce~"Labor Force\nParticipation"),
+    include = c(Age,Male,Schooling,Rural,Local,LaborForce,Employed,Wage),
+    label = list(Schooling~"School Attendance",
+                 LaborForce~"Labor Force\nParticipation",
+                 Wage~"Wage/Salary Employee",
+                 Local~"Born in Municipality"),
     by=TREAT,
     statistic = all_continuous() ~ "{mean} ({sd})", missing = "no"
   ) %>%
